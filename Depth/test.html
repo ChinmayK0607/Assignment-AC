@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Depth Map Streaming</title>
+    <style>
+        #videoElement, #depthMap {
+            width: 320px;
+            height: 240px;
+            margin: 10px;
+        }
+        #controls {
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Real-Time Depth Map Streaming</h2>
+    <video id="videoElement" autoplay></video>
+    <img id="depthMap" alt="Depth map will appear here">
+    <div id="controls">
+        <button id="startButton">Start Streaming</button>
+        <button id="stopButton">Stop Streaming</button>
+        <select id="modelSelect">
+            <option value="original">Original Model</option>
+            <option value="midas">MiDaS Model</option>
+        </select>
+    </div>
+    <div id="errorLog"></div>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const depthMap = document.getElementById('depthMap');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const modelSelect = document.getElementById('modelSelect');
+        const errorLog = document.getElementById('errorLog');
+
+        let isStreaming = false;
+        let socket;
+
+        if (navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } })
+                .then(function (stream) {
+                    video.srcObject = stream;
+                })
+                .catch(function (err) {
+                    console.error("Camera error:", err);
+                    errorLog.textContent = `Camera error: ${err.message}`;
+                });
+        }
+
+        function startStreaming() {
+            const model = modelSelect.value;
+            socket = new WebSocket(`ws://localhost:8000/ws/${model}`);
+
+            socket.onopen = function(e) {
+                console.log("WebSocket connection established");
+                isStreaming = true;
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                modelSelect.disabled = true;
+                sendFrame();
+            };
+
+            socket.onmessage = function(event) {
+                depthMap.src = 'data:image/jpeg;base64,' + event.data;
+                if (isStreaming) {
+                    sendFrame();
+                }
+            };
+
+            socket.onclose = function(event) {
+                console.log("WebSocket connection closed");
+                isStreaming = false;
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                modelSelect.disabled = false;
+            };
+
+            socket.onerror = function(error) {
+                console.error(`WebSocket error: ${error}`);
+                errorLog.textContent = `WebSocket error: ${error}`;
+            };
+        }
+
+        function stopStreaming() {
+            isStreaming = false;
+            if (socket) {
+                socket.close();
+            }
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            modelSelect.disabled = false;
+        }
+
+        function sendFrame() {
+            if (!isStreaming) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(function(blob) {
+                socket.send(blob);
+            }, 'image/jpeg');
+        }
+
+        startButton.addEventListener('click', startStreaming);
+        stopButton.addEventListener('click', stopStreaming);
+
+        stopButton.disabled = true;
+    </script>
+</body>
+</html>
